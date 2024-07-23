@@ -1,0 +1,7 @@
+apiVersion: tomlebreux.com/v1alpha1
+kind: ClusterRancherToken
+metadata:
+  name: "my-request"
+spec:
+  clusterName: "my-cluster"
+  ttl: 90

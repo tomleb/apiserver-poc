@@ -1,0 +1,54 @@
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: apiserver-poc-read
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: apiserver-poc-admin
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: apiserver-poc-read
+rules:
+- apiGroups: ["tomlebreux.com"]
+  resources: ["*"]
+  verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: apiserver-poc-admin
+rules:
+- apiGroups: ["tomlebreux.com"]
+  resources: ["*"]
+  verbs: ["*"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: apiserver-poc-read
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: apiserver-poc-read
+subjects:
+- kind: ServiceAccount
+  name: apiserver-poc-read
+  namespace: default
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: apiserver-poc-admin
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: apiserver-poc-admin
+subjects:
+- kind: ServiceAccount
+  name: apiserver-poc-admin
+  namespace: default
