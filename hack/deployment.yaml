@@ -18,7 +18,7 @@ spec:
       serviceAccountName: apiserver-poc
       containers:
       - name: apiserver-poc
-        image: docker.io/tlebreux/apiserver-poc:dev
+        image: local/apiserver-poc:dev
         imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 9443

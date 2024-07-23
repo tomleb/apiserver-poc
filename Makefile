@@ -1,7 +1,8 @@
 BUILD := docker buildx build
 
 IMAGE_TAG ?= dev
-REGISTRY ?= docker.io/$(USER)
+REGISTRY ?= local
+REGISTRY_IMAGE ?= $(REGISTRY)/apiserver-poc
 
 K3D_CLUSTER ?= apiserver-poc
 K3D_K3S_VERSION ?= v1.30.2
@@ -26,11 +27,11 @@ delete-cluster: k3d
 image:
 	@$(BUILD) \
 		--target=apiserver-poc \
-		--output=type=image,name=$(REGISTRY)/apiserver-poc:$(IMAGE_TAG) \
+		--output=type=image,name=$(REGISTRY_IMAGE):$(IMAGE_TAG) \
 		.
 
 import:
-	@bin/k3d image import --cluster $(K3D_CLUSTER) $(REGISTRY)/apiserver-poc:$(IMAGE_TAG)
+	@bin/k3d image import --cluster $(K3D_CLUSTER) $(REGISTRY_IMAGE):$(IMAGE_TAG)
 
 deploy:
 	@$(MAKE) image import
