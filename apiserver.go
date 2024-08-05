@@ -16,7 +16,6 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"reflect"
@@ -24,8 +23,7 @@ import (
 
 	"agones.dev/agones/pkg/util/https"
 	"agones.dev/agones/pkg/util/runtime"
-	// restful "github.com/emicklei/go-restful/v3"
-	"github.com/go-openapi/spec"
+	restful "github.com/emicklei/go-restful/v3"
 	"github.com/munnerz/goautoneg"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -35,11 +33,8 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/serializer"
 	"k8s.io/apiserver/pkg/endpoints/openapi"
 	genericapiserver "k8s.io/apiserver/pkg/server"
-	// "k8s.io/apiserver/pkg/server/mux"
+	kmux "k8s.io/apiserver/pkg/server/mux"
 	"k8s.io/apiserver/pkg/server/routes"
-	"k8s.io/kube-openapi/pkg/handler3"
-	"k8s.io/sample-apiserver/pkg/apiserver"
-	sampleopenapi "k8s.io/sample-apiserver/pkg/generated/openapi"
 )
 
 var (
@@ -77,120 +72,86 @@ type APIServer struct {
 	logger              *logrus.Entry
 	mux                 *http.ServeMux
 	resourceList        map[schema.GroupVersion]*metav1.APIResourceList
-	openapiv2           *spec.Swagger
-	openapiv3Discovery  *handler3.OpenAPIV3Discovery
 	delegates           map[schema.GroupVersionResource]CRDHandler
 	namespacedDelegates map[schema.GroupVersionResource]CRDHandler
+}
+
+func noop(*restful.Request, *restful.Response) {
 }
 
 // NewAPIServer returns a new API Server from the given Mux.
 // creates a empty Swagger definition and sets up the endpoint.
 func NewAPIServer(mux *http.ServeMux) *APIServer {
-	oapiConfig := genericapiserver.DefaultOpenAPIConfig(sampleopenapi.GetOpenAPIDefinitions, openapi.NewDefinitionNamer(apiserver.Scheme))
-	oapiConfig.Info.Title = "Wardle"
-	oapiConfig.Info.Version = "0.1"
+	oapiConfigV2 := genericapiserver.DefaultOpenAPIConfig(
+		getDefinitions,
+		openapi.NewDefinitionNamer(Scheme),
+	)
+
+	oapiConfigV3 := genericapiserver.DefaultOpenAPIV3Config(
+		getDefinitions,
+		openapi.NewDefinitionNamer(Scheme),
+	)
+
+	// TODO: Get rid of NewDefinitionNamer because it keeps the whole
+	// type's PkgPath which isn't what we want.
+	// eg: openapi-mux.apis.tomlebreux.com.v1alpha1.RancherToken
+	//      instead of
+	//     com.tomlebreux.v1alpha1.RancherToken
+
 	oapiRoutes := routes.OpenAPI{
-		Config: oapiConfig,
+		Config:   oapiConfigV2,
+		V3Config: oapiConfigV3,
 	}
-	fmt.Println(oapiRoutes)
-	// oapiRoutes.InstallV2(restful.NewContainer(), mux.NewPathRecorder
+
+	theMux := kmux.NewPathRecorderMux("hi")
+
+	container := restful.NewContainer()
+	ws := &restful.WebService{}
+	ws.Path("/apis/tomlebreux.com/v1alpha1")
+	ws.Route(
+		ws.GET("/namespaces/{namespace}/ranchertokens").
+			To(noop).
+			// Ends up being changed to listTomlebreuxComV1alpha1RancherTokens ..
+			Operation("listRancherTokens").
+			Doc("list all your tokens").
+			Consumes(restful.MIME_JSON).
+			Produces(restful.MIME_JSON).
+			Reads(&RancherToken{}).
+			Returns(200, "OK", &RancherToken{}).
+			// Whatever, just testing things
+			ReturnsError(404, "not found", &RancherToken{}),
+	)
+	ws.Route(
+		ws.DELETE("/namespaces/{namespace}/ranchertokens/{name}").
+			To(noop).
+			// Ends up being changed to listTomlebreuxComV1alpha1RancherTokens ..
+			Operation("deleteRancherTokens").
+			Doc("delete the token").
+			Consumes(restful.MIME_JSON).
+			Produces(restful.MIME_JSON).
+			Reads(&RancherToken{}).
+			Returns(200, "OK", &RancherToken{}).
+			// Whatever, just testing things
+			ReturnsError(404, "not found", &RancherToken{}),
+	)
+	container.Add(ws)
+
+	oapiRoutes.InstallV2(container, theMux)
+	oapiRoutes.InstallV3(container, theMux)
 
 	s := &APIServer{
-		mux:          mux,
-		resourceList: map[schema.GroupVersion]*metav1.APIResourceList{},
-		openapiv2: &spec.Swagger{
-			SwaggerProps: spec.SwaggerProps{
-				Info: &spec.Info{
-					InfoProps: spec.InfoProps{
-						Title:   "Kubernetes",
-						Version: "v1.30.2+k3s1",
-					},
-				},
-				Paths: &spec.Paths{
-					Paths: map[string]spec.PathItem{
-						"/apis/tomlebreux.com/v1alpha1/namespaces/{namespace}/ranchertokens": {
-							PathItemProps: spec.PathItemProps{
-								Get: &spec.Operation{
-									OperationProps: spec.OperationProps{
-										ID:          "listRancherTokens",
-										Description: "hi",
-										Consumes:    []string{"*/*"},
-										Produces:    []string{"application/json"},
-										Schemes:     []string{"https"},
-										Responses: &spec.Responses{
-											ResponsesProps: spec.ResponsesProps{
-												StatusCodeResponses: map[int]spec.Response{
-													200: spec.Response{
-														ResponseProps: spec.ResponseProps{
-															Description: "OK",
-														},
-													},
-												},
-											},
-										},
-									},
-								},
-							},
-						},
-					},
-				},
-				// FIXME: This doesn't work, I must be missing some fields. Look into the sample api server to see how
-				// they do it.
-				Definitions: spec.Definitions{
-					"com.tomlebreux.v1alpha1.RancherToken": spec.Schema{
-						SchemaProps: spec.SchemaProps{
-							Description: "blabla",
-							Type:        spec.StringOrArray{"object"},
-							Properties: spec.SchemaProperties{
-								"spec": {
-									SchemaProps: spec.SchemaProps{
-										Type: spec.StringOrArray{"string"},
-									},
-								},
-							},
-						},
-						VendorExtensible: spec.VendorExtensible{
-							Extensions: spec.Extensions{
-								"x-kubernetes-group-version-kind": map[string]string{
-									"group":   "tomlebreux.com",
-									"kind":    "ClusterRancherToken",
-									"version": "v1alpha1",
-								},
-							},
-						},
-					},
-				},
-			},
-		},
-		openapiv3Discovery:  &handler3.OpenAPIV3Discovery{Paths: map[string]handler3.OpenAPIV3DiscoveryGroupVersion{}},
+		mux:                 mux,
+		resourceList:        map[schema.GroupVersion]*metav1.APIResourceList{},
 		delegates:           map[schema.GroupVersionResource]CRDHandler{},
 		namespacedDelegates: map[schema.GroupVersionResource]CRDHandler{},
 	}
 	s.logger = runtime.NewLoggerWithType(s)
 	s.logger.Debug("API Server Started")
 
-	mux.HandleFunc("/openapi/v3", https.ErrorHTTPHandler(s.logger, func(w http.ResponseWriter, r *http.Request) error {
-		https.LogRequest(s.logger, r).Info("OpenAPI V3")
-		w.Header().Set(ContentTypeHeader, k8sruntime.ContentTypeJSON)
-		err := json.NewEncoder(w).Encode(s.openapiv3Discovery)
-		if err != nil {
-			return errors.Wrap(err, "error encoding openapi/v3")
-		}
-		return nil
-	}))
-
-	mux.HandleFunc("/openapi/v2", https.ErrorHTTPHandler(s.logger, func(w http.ResponseWriter, r *http.Request) error {
-		https.LogRequest(s.logger, r).Info("OpenAPI V2")
-		w.Header().Set(ContentTypeHeader, k8sruntime.ContentTypeJSON)
-		raw, err := json.MarshalIndent(s.openapiv2, "", "  ")
-		fmt.Println(string(raw))
-
-		err = json.NewEncoder(w).Encode(s.openapiv2)
-		if err != nil {
-			return errors.Wrap(err, "error encoding openapi/v2")
-		}
-		return nil
-	}))
+	mux.Handle("/openapi/v3", theMux)
+	mux.Handle("/openapi/v2", theMux)
+	mux.Handle("/openapi/v3/", theMux)
+	mux.Handle("/openapi/v2/", theMux)
 
 	// This endpoint serves APIGroupDiscoveryList objects which is defined in this
 	// KEP: https://github.com/kubernetes/enhancements/blob/master/keps/sig-api-machinery/3352-aggregated-discovery/
