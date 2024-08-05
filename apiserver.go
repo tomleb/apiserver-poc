@@ -24,6 +24,7 @@ import (
 
 	"agones.dev/agones/pkg/util/https"
 	"agones.dev/agones/pkg/util/runtime"
+	// restful "github.com/emicklei/go-restful/v3"
 	"github.com/go-openapi/spec"
 	"github.com/munnerz/goautoneg"
 	"github.com/pkg/errors"
@@ -32,7 +33,13 @@ import (
 	k8sruntime "k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/runtime/serializer"
+	"k8s.io/apiserver/pkg/endpoints/openapi"
+	genericapiserver "k8s.io/apiserver/pkg/server"
+	// "k8s.io/apiserver/pkg/server/mux"
+	"k8s.io/apiserver/pkg/server/routes"
 	"k8s.io/kube-openapi/pkg/handler3"
+	"k8s.io/sample-apiserver/pkg/apiserver"
+	sampleopenapi "k8s.io/sample-apiserver/pkg/generated/openapi"
 )
 
 var (
@@ -79,15 +86,58 @@ type APIServer struct {
 // NewAPIServer returns a new API Server from the given Mux.
 // creates a empty Swagger definition and sets up the endpoint.
 func NewAPIServer(mux *http.ServeMux) *APIServer {
+	oapiConfig := genericapiserver.DefaultOpenAPIConfig(sampleopenapi.GetOpenAPIDefinitions, openapi.NewDefinitionNamer(apiserver.Scheme))
+	oapiConfig.Info.Title = "Wardle"
+	oapiConfig.Info.Version = "0.1"
+	oapiRoutes := routes.OpenAPI{
+		Config: oapiConfig,
+	}
+	fmt.Println(oapiRoutes)
+	// oapiRoutes.InstallV2(restful.NewContainer(), mux.NewPathRecorder
+
 	s := &APIServer{
 		mux:          mux,
 		resourceList: map[schema.GroupVersion]*metav1.APIResourceList{},
 		openapiv2: &spec.Swagger{
 			SwaggerProps: spec.SwaggerProps{
+				Info: &spec.Info{
+					InfoProps: spec.InfoProps{
+						Title:   "Kubernetes",
+						Version: "v1.30.2+k3s1",
+					},
+				},
+				Paths: &spec.Paths{
+					Paths: map[string]spec.PathItem{
+						"/apis/tomlebreux.com/v1alpha1/namespaces/{namespace}/ranchertokens": {
+							PathItemProps: spec.PathItemProps{
+								Get: &spec.Operation{
+									OperationProps: spec.OperationProps{
+										ID:          "listRancherTokens",
+										Description: "hi",
+										Consumes:    []string{"*/*"},
+										Produces:    []string{"application/json"},
+										Schemes:     []string{"https"},
+										Responses: &spec.Responses{
+											ResponsesProps: spec.ResponsesProps{
+												StatusCodeResponses: map[int]spec.Response{
+													200: spec.Response{
+														ResponseProps: spec.ResponseProps{
+															Description: "OK",
+														},
+													},
+												},
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
 				// FIXME: This doesn't work, I must be missing some fields. Look into the sample api server to see how
 				// they do it.
 				Definitions: spec.Definitions{
-					"com.tomlebreux.v1alpha1.ClusterRancherToken": spec.Schema{
+					"com.tomlebreux.v1alpha1.RancherToken": spec.Schema{
 						SchemaProps: spec.SchemaProps{
 							Description: "blabla",
 							Type:        spec.StringOrArray{"object"},
@@ -129,7 +179,6 @@ func NewAPIServer(mux *http.ServeMux) *APIServer {
 		return nil
 	}))
 
-	s.openapiv2.SwaggerProps.Info = &spec.Info{InfoProps: spec.InfoProps{Title: "tomlebreux.com"}}
 	mux.HandleFunc("/openapi/v2", https.ErrorHTTPHandler(s.logger, func(w http.ResponseWriter, r *http.Request) error {
 		https.LogRequest(s.logger, r).Info("OpenAPI V2")
 		w.Header().Set(ContentTypeHeader, k8sruntime.ContentTypeJSON)
